@@ -21,6 +21,7 @@ void server(int rank, int size, int num_of_tasks, char** argv) {
     for (int i = 1; i < num_of_tasks; i++) {
         tasks.push(stoi(argv[i]));
     }
+    tasks.push(0);
     int result = 0;
     double start_time = MPI_Wtime();
     // Distribute tasks
@@ -44,14 +45,23 @@ void server(int rank, int size, int num_of_tasks, char** argv) {
                 MPI_Send(nullptr, 0, MPI_INT, source_rank, EXIT_TAG, MPI_COMM_WORLD);
                 remaining_workers--;
             }
-        } else if (tag == RESULT_TAG) {
-	    MPI_Recv(&result, 1, MPI_INT, source_rank, tag, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+        } 
+	if (tag == RESULT_TAG) {
+	    
+            MPI_Recv(&result, 1, MPI_INT, source_rank, tag, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
 	    resultg += result;
 	}
-        else {
-            printf("Unknown tag: %d\n", tag);
-        }
     }
+    MPI_Status stat;
+        // Wait for incoming message from a worker
+        MPI_Probe(MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD, &stat);
+        const int source_rank = stat.MPI_SOURCE;
+        const int tag = stat.MPI_TAG;
+    if (tag == RESULT_TAG) {
+	    
+            MPI_Recv(&result, 1, MPI_INT, source_rank, tag, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+	    resultg += result;
+	}
     double end_time = MPI_Wtime();
     printf("result is: %d\n", resultg);
     printf("Server is done, time = %.5f\n", end_time - start_time);
@@ -80,7 +90,7 @@ int exec_task(int worker_rank, int task) {
     return c;
 }
 
-int worker(int rank, int size, int server_rank) {
+void worker(int rank, int size, int server_rank) {
     bool working = true;
     int result = 0;
     while (working) {
@@ -94,18 +104,20 @@ int worker(int rank, int size, int server_rank) {
             int task;
             MPI_Recv(&task, 1, MPI_INT, server_rank, tag, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
             // Executing the task
-            result += exec_task(rank, task);
+            resultg += exec_task(rank, task);
         }
         else if (tag == EXIT_TAG) { // response is a signal to exit
             MPI_Recv(nullptr, 0, MPI_INT, server_rank, tag, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
             working = false;
-        }
+            printf("resultofthisworker: %d\n", resultg);
+	}
         else {
+	    
             printf("Unknown tag: %d\n", tag);
         }
     }
-    MPI_Send(&result, 1, MPI_INT, server_rank, RESULT_TAG, MPI_COMM_WORLD);
-    return result;
+    MPI_Send(&resultg, 1, MPI_INT, server_rank, RESULT_TAG, MPI_COMM_WORLD);
+    
 }
 
 int main(int argc, char** argv) {
@@ -123,13 +135,12 @@ int main(int argc, char** argv) {
     if (rank == SERVER_RANK) {
         // This is a server process
         server(rank, size, num_of_tasks, argv);
-	
     }
     else {
         // This is a worker process
-        resultg += worker(rank, size, SERVER_RANK);
+        worker(rank, size, SERVER_RANK);
     }
-
+    
     
     MPI_Finalize();
     return 0;
